@@ -1,0 +1,66 @@
+# Build and deploy the Vite app to GitHub Pages (Settings → Pages → Source: GitHub Actions).
+# Site URL: https://<owner>.github.io/<repo>/
+
+name: Deploy GitHub Pages
+
+on:
+  # Job `if` below limits deploys to the repository default branch (any name).
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Manual runs always build; pushes only on the repo default branch.
+    if: github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      - name: Authenticate npm
+        run: |
+          echo "@mondaydotcomorg:registry=https://registry.npmjs.org/" >> .npmrc
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Install
+        run: yarn install --frozen-lockfile
+
+      # Vite uses base `./` by default (see vite.config.ts) so assets resolve after org.github.io → *.pages.github.io redirects.
+      - name: Build
+        run: yarn build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
